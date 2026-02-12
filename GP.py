@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 
 # --- CONFIGURATION ---
-FILE_PATH = "your_file_path_here.xlsx"  # Update this to your actual file path
+FILE_PATH = "STREAMLIT_GP_REPORT.Xlsx"  # Update this to your actual file path
 st.set_page_config(page_title="Retail Area & Outlet Dashboard", layout="wide")
 
 @st.cache_data
