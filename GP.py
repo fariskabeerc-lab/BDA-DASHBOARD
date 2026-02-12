@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
+
 # ==============================
 # PAGE CONFIG
 # ==============================
@@ -13,11 +14,39 @@ st.set_page_config(page_title="Outlet Performance Dashboard", layout="wide")
 # ==============================
 @st.cache_data
 def load_data():
-    df = pd.read_excel("STREAMLIT_GP_REPORT.Xlsx")  # Change file name if needed
-    return df
+    return pd.read_excel("STREAMLIT_GP_REPORT.xlsx", engine="openpyxl")
 
 
 df = load_data()
+
+
+# ==============================
+# CLEAN & RENAME COLUMNS
+# ==============================
+
+# Remove spaces from headers
+df.columns = df.columns.str.strip()
+
+# Rename Company Name → OUTLET
+if "Company Name" in df.columns:
+    df.rename(columns={"Company Name": "OUTLET"}, inplace=True)
+
+# Rename Class → CLASS
+if "Class" in df.columns:
+    df.rename(columns={"Class": "CLASS"}, inplace=True)
+
+# Safety check
+required_cols = ["OUTLET", "CLASS"]
+
+for col in required_cols:
+    if col not in df.columns:
+        st.error(f"❌ Missing column: {col}")
+        st.write("Available columns:", df.columns.tolist())
+        st.stop()
+
+
+# Clean outlet values
+df["OUTLET"] = df["OUTLET"].astype(str).str.strip().str.upper()
 
 
 # ==============================
@@ -35,9 +64,6 @@ labour_outlets = [
 ]
 
 
-df["OUTLET"] = df["OUTLET"].str.strip()
-
-
 df["AREA_TYPE"] = df["OUTLET"].apply(
     lambda x: "Labour" if x in labour_outlets else "Family"
 )
@@ -48,6 +74,7 @@ df["AREA_TYPE"] = df["OUTLET"].apply(
 # ==============================
 
 categories = {
+
     "Department": {
         "sales": "DEPARTMENT Total Sales",
         "margin": "DEPARTMENT Margin (%)",
@@ -97,11 +124,13 @@ page = st.sidebar.selectbox(
     ["Outlet Wise", "Area Wise"]
 )
 
+
 selected_category = st.sidebar.multiselect(
     "Select Categories",
     list(categories.keys()),
     default=list(categories.keys())
 )
+
 
 area_filter = st.sidebar.multiselect(
     "Select Area Type",
@@ -111,15 +140,11 @@ area_filter = st.sidebar.multiselect(
 
 
 # ==============================
-# APPLY AREA FILTER
+# APPLY FILTERS
 # ==============================
 
 filtered_df = df[df["AREA_TYPE"].isin(area_filter)].copy()
 
-
-# ==============================
-# APPLY PAGE FILTER
-# ==============================
 
 if page == "Outlet Wise":
 
@@ -148,6 +173,7 @@ total_sales = 0
 total_profit = 0
 avg_margin = 0
 count = 0
+
 
 for cat in selected_category:
 
@@ -184,10 +210,11 @@ st.divider()
 
 
 # ==============================
-# CATEGORY WISE SUMMARY
+# CATEGORY SUMMARY
 # ==============================
 
 category_data = []
+
 
 for cat in selected_category:
 
@@ -195,7 +222,8 @@ for cat in selected_category:
     profit = filtered_df[categories[cat]["profit"]].sum()
     margin = filtered_df[categories[cat]["margin"]].mean()
 
-    if sales > 0:  # Remove zero values
+
+    if sales > 0:
 
         category_data.append({
             "Category": cat,
@@ -215,6 +243,7 @@ cat_df = pd.DataFrame(category_data)
 st.subheader("📌 Category Performance")
 
 c1, c2 = st.columns(2)
+
 
 with c1:
 
@@ -244,23 +273,27 @@ st.divider()
 
 
 # ==============================
-# CLASS WISE PERFORMANCE
+# CLASS PERFORMANCE
 # ==============================
 
 st.subheader("🏷️ Class Performance")
 
+
 class_data = []
 
-for cls in filtered_df["Class"].unique():
 
-    cls_df = filtered_df[filtered_df["Class"] == cls]
+for cls in filtered_df["CLASS"].unique():
+
+    cls_df = filtered_df[filtered_df["CLASS"] == cls]
 
     sales = 0
+
 
     for cat in selected_category:
         sales += cls_df[categories[cat]["sales"]].sum()
 
-    if sales > 0:  # Remove zero classes
+
+    if sales > 0:
 
         class_data.append({
             "Class": cls,
@@ -285,12 +318,14 @@ st.divider()
 
 
 # ==============================
-# AREA COMPARISON (LABOUR VS FAMILY)
+# LABOUR vs FAMILY
 # ==============================
 
 st.subheader("📍 Labour vs Family Comparison")
 
+
 area_summary = []
+
 
 for area in df["AREA_TYPE"].unique():
 
@@ -299,9 +334,12 @@ for area in df["AREA_TYPE"].unique():
     sales = 0
     profit = 0
 
+
     for cat in categories.keys():
+
         sales += temp[categories[cat]["sales"]].sum()
         profit += temp[categories[cat]["profit"]].sum()
+
 
     area_summary.append({
         "Area": area,
@@ -314,6 +352,7 @@ area_df = pd.DataFrame(area_summary)
 
 
 c3, c4 = st.columns(2)
+
 
 with c3:
 
@@ -343,7 +382,7 @@ st.divider()
 
 
 # ==============================
-# DETAILED TABLE
+# TABLE
 # ==============================
 
 st.subheader("📋 Detailed Data")
