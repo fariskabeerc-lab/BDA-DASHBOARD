@@ -11,7 +11,7 @@ st.title("📈 Outlet Performance Dashboard")
 # ==============================
 # FILE PATH
 # ==============================
-FILE_PATH = "STREAMLIT_GP_REPORT.xlsx"  # <-- Replace with your file path
+FILE_PATH = "STREAMLIT_GP_REPORT.Xlsx"  # <-- Replace with your file path
 
 @st.cache_data
 def load_data(path):
