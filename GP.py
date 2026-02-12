@@ -13,7 +13,7 @@ st.set_page_config(page_title="Outlet Performance Dashboard", layout="wide")
 # ==============================
 @st.cache_data
 def load_data():
-    df = pd.read_excel("sales_data.xlsx")  # Change file name if needed
+    df = pd.read_excel("STREAMLIT_GP_REPORT.Xlsx")  # Change file name if needed
     return df
 
 
