@@ -32,7 +32,7 @@ except FileNotFoundError:
 df.columns = df.columns.str.strip()
 
 if "Company Name" in df.columns:
-    df.rename(columns={"Company Name": "OUTLET"}, inplace=True)
+    df.rename(columns={"OUTLET": "OUTLET"}, inplace=True)
 else:
     st.error("❌ Column 'Company Name' not found")
     st.stop()
