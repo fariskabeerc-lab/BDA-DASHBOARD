@@ -11,7 +11,7 @@ st.title("📈 Outlet Performance Dashboard")
 # ==============================
 # FILE PATH
 # ==============================
-FILE_PATH = "STREAMLIT_GP_REPORT.Xlsx"  # <-- Replace with your file path
+FILE_PATH = "STREAMLIT_GP_REPORT.xlsx"  # <-- Replace with your file path
 
 @st.cache_data
 def load_data(path):
@@ -27,22 +27,9 @@ except FileNotFoundError:
     st.stop()
 
 # ==============================
-# CLEAN & RENAME COLUMNS
+# CLEAN COLUMNS
 # ==============================
 df.columns = df.columns.str.strip()
-
-if "Company Name" in df.columns:
-    df.rename(columns={"OUTLET": "OUTLET"}, inplace=True)
-else:
-    st.error("❌ Column 'Company Name' not found")
-    st.stop()
-
-if "Class" in df.columns:
-    df.rename(columns={"Class": "CLASS"}, inplace=True)
-else:
-    st.error("❌ Column 'Class' not found")
-    st.stop()
-
 df["OUTLET"] = df["OUTLET"].astype(str).str.strip().str.upper()
 df["CLASS"] = df["CLASS"].astype(str).str.strip()
 
