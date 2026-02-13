@@ -77,13 +77,15 @@ df = load_and_clean_data()
 # ==============================
 # 3. SIDEBAR NAVIGATION
 # ==============================
-st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3222/3222800.png", width=100)
+st.sidebar.markdown("## 🏢 Al Madina Group")
+st.sidebar.markdown("---")
+
 st.sidebar.title("Supplier Filter")
+
 supplier_list = sorted(df["supplier"].unique().tolist())
 selected_supplier = st.sidebar.selectbox("Select Supplier Account", supplier_list)
 
-# Filter Dataset
-s_df = df[df["supplier"] == selected_supplier].copy()
+st.sidebar.markdown("---")
 
 # ==============================
 # 4. BUSINESS LOGIC & CALCULATIONS
@@ -106,22 +108,30 @@ slabs_ref = [
 active_slabs = []
 current_earned_pct = 0
 
-for s_col, p_col in slabs_ref:
-    t_val = row[s_col]
-    if t_val > 0:
-        gap = max(0, t_val - p_2026)
-        is_achieved = p_2026 >= t_val
-        active_slabs.append({
-            "Name": s_col,
-            "Target": t_val,
-            "Gap": gap,
-            "Percent": row[p_col],
-            "Status": is_achieved
-        })
-        if is_achieved:
-            current_earned_pct = row[p_col]
+# Force Order: A → B → C → D → E
+ordered_slabs = ['SLAB A', 'SLAB B', 'SLAB C', 'SLAB D', 'SLAB E']
 
-est_rebate_val = p_2026 * (current_earned_pct / 100)
+for slab in ordered_slabs:
+    for s_col, p_col in slabs_ref:
+
+        if slab == s_col:
+
+            t_val = row[s_col]
+
+            if t_val > 0:
+                gap = max(0, t_val - p_2026)
+                is_achieved = p_2026 >= t_val
+
+                active_slabs.append({
+                    "Name": s_col,
+                    "Target": t_val,
+                    "Gap": gap,
+                    "Percent": row[p_col],
+                    "Status": is_achieved
+                })
+
+                if is_achieved:
+                    current_earned_pct = row[p_col]
 
 # ==============================
 # 5. DASHBOARD HEADER & KPI CARDS
