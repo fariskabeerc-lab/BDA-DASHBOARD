@@ -4,15 +4,37 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # ==============================
-# PAGE CONFIG
+# PAGE CONFIG & STYLING
 # ==============================
 st.set_page_config(page_title="Executive Rebate Dashboard", layout="wide")
 
-# Custom CSS for a cleaner "Enterprise" look
+# Custom CSS to fix the visibility of metric values
 st.markdown("""
     <style>
+    /* Background of the main app */
     .main { background-color: #f4f7f9; }
-    .stMetric { border: 1px solid #d1d5db; padding: 10px; border-radius: 10px; background: white; }
+    
+    /* Styling the Metric Cards */
+    [data-testid="stMetric"] {
+        background-color: #ffffff;
+        border: 1px solid #d1d5db;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    /* Target the Metric Labels (Title of the card) */
+    [data-testid="stMetricLabel"] {
+        color: #4b5563 !important;
+        font-weight: 600;
+    }
+
+    /* Target the Metric Value (The numbers) to be dark */
+    [data-testid="stMetricValue"] {
+        color: #111827 !important; 
+        font-size: 1.8rem !important;
+    }
+    
     header {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
