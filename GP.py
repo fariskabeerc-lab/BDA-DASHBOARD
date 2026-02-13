@@ -77,7 +77,6 @@ df = load_and_clean_data()
 # ==============================
 # 3. SIDEBAR NAVIGATION
 # ==============================
-st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3222/3222800.png", width=100)
 st.sidebar.title("Supplier Filter")
 supplier_list = sorted(df["supplier"].unique().tolist())
 selected_supplier = st.sidebar.selectbox("Select Supplier Account", supplier_list)
