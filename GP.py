@@ -23,7 +23,7 @@ footer {visibility: hidden;}
 # ==============================
 # FILE PATH (CHANGE THIS)
 # ==============================
-FILE_PATH = r"C:/your_path/your_file.xlsx"
+FILE_PATH = r"BDA STREAMLIT.xlsx"
 
 
 # ==============================
