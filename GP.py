@@ -4,15 +4,16 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # ==============================
-# PAGE CONFIG & STYLING
+# PAGE CONFIG
 # ==============================
-st.set_page_config(page_title="Strategic Rebate Analyzer", layout="wide")
+st.set_page_config(page_title="Executive Rebate Dashboard", layout="wide")
 
+# Custom CSS for a cleaner "Enterprise" look
 st.markdown("""
     <style>
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #e6e9ef; }
-    [data-testid="stMetricValue"] { color: #1f77b4; }
-    .main { background-color: #f0f2f6; }
+    .main { background-color: #f4f7f9; }
+    .stMetric { border: 1px solid #d1d5db; padding: 10px; border-radius: 10px; background: white; }
+    header {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -25,9 +26,12 @@ FILE_PATH = r"BDA STREAMLIT.xlsx"
 def load_data():
     df = pd.read_excel(FILE_PATH)
     df.columns = df.columns.str.strip()
-    # Convert all possible numeric columns and handle NaNs
+    # Ensure all numerical columns are cleaned
     num_cols = ['2026 TOTEL PURCHASE', 'BASE TARGET', '2025 TOTEL PURCHASE', 'SALE OF 2025',
-                'SLAB A', 'SLAB B', 'SLAB C', 'SLAB D', 'SLAB E']
+                'SLAB A', 'SLAB B', 'SLAB C', 'SLAB D', 'SLAB E', 
+                'SLAB A ACHIEVE PAYABLE AMOUNT%', 'SLAB B ACHIEVE PAYABLE AMOUNT%',
+                'SLAB C ACHIEVE PAYABLE AMOUNT%', 'SLAB D ACHIEVE PAYABLE AMOUNT%',
+                'SLAB E ACHIEVE PAYABLE AMOUNT%']
     for col in num_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -36,155 +40,140 @@ def load_data():
 df = load_data()
 
 # ==============================
-# SIDEBAR & FILTERS
+# SIDEBAR
 # ==============================
-st.sidebar.header("🎯 Dashboard Controls")
+st.sidebar.header("📊 Filter View")
 supplier_list = sorted(df["supplier"].unique().tolist())
-selected_supplier = st.sidebar.selectbox("Select a Supplier to Deep-Dive", supplier_list)
+selected_supplier = st.sidebar.selectbox("Choose Supplier", supplier_list)
 
-# Filter data for the selected supplier
-s_data = df[df["supplier"] == selected_supplier].copy()
+# Filter for the specific supplier
+s_df = df[df["supplier"] == selected_supplier].copy()
 
 # ==============================
-# CALCULATIONS
+# AGGREGATED CALCULATIONS
 # ==============================
-p_2026 = s_data["2026 TOTEL PURCHASE"].sum()
-p_2025 = s_data["2025 TOTEL PURCHASE"].sum()
-s_2025 = s_data["SALE OF 2025"].sum()
-b_target = s_data["BASE TARGET"].sum()
+p_2026 = s_df["2026 TOTEL PURCHASE"].sum()
+p_2025 = s_df["2025 TOTEL PURCHASE"].sum()
+s_2025 = s_df["SALE OF 2025"].sum()
+b_target = s_df["BASE TARGET"].sum()
 
-# Identify active slabs (ignoring 0)
-slabs_ref = [('SLAB A', 'SLAB A ACHIEVE PAYABLE AMOUNT%'), 
-             ('SLAB B', 'SLAB B ACHIEVE PAYABLE AMOUNT%'),
-             ('SLAB C', 'SLAB C ACHIEVE PAYABLE AMOUNT%'),
-             ('SLAB D', 'SLAB D ACHIEVE PAYABLE AMOUNT%'),
-             ('SLAB E', 'SLAB E ACHIEVE PAYABLE AMOUNT%')]
+# Slab Logic - Using the first row of the supplier data for slab definitions
+row = s_df.iloc[0]
+slabs_config = [
+    ('SLAB A', 'SLAB A ACHIEVE PAYABLE AMOUNT%'),
+    ('SLAB B', 'SLAB B ACHIEVE PAYABLE AMOUNT%'),
+    ('SLAB C', 'SLAB C ACHIEVE PAYABLE AMOUNT%'),
+    ('SLAB D', 'SLAB D ACHIEVE PAYABLE AMOUNT%'),
+    ('SLAB E', 'SLAB E ACHIEVE PAYABLE AMOUNT%')
+]
 
 active_slabs = []
-current_rebate_pct = 0
-for s_name, p_name in slabs_ref:
-    val = s_data[s_name].iloc[0]
-    pct = s_data[p_name].iloc[0]
-    if val > 0:
-        gap = max(0, val - p_2026)
-        achieved = p_2026 >= val
-        active_slabs.append({"Slab": s_name, "Target": val, "Gap": gap, "Pct": pct, "Status": achieved})
-        if achieved:
-            current_rebate_pct = pct
+earned_pct = 0
+for s_col, p_col in slabs_config:
+    target_val = row[s_col]
+    if target_val > 0:
+        is_achieved = p_2026 >= target_val
+        gap = max(0, target_val - p_2026)
+        active_slabs.append({
+            "Slab": s_col,
+            "Target": target_val,
+            "Gap": gap,
+            "Percent": row[p_col],
+            "Status": "Achieved" if is_achieved else "Pending"
+        })
+        if is_achieved:
+            earned_pct = row[p_col]
 
-est_rebate_val = p_2026 * (current_rebate_pct / 100)
-
-# ==============================
-# HEADER SECTION
-# ==============================
-st.title(f"🏢 {selected_supplier} Performance Dashboard")
-st.markdown(f"**Current Status:** {'Target Achieved ✅' if p_2026 >= b_target else 'Below Base Target ⚠️'}")
-
-# Top Row Metrics
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("2026 Purchase", f"{p_2026:,.0f}")
-c2.metric("Base Target", f"{b_target:,.0f}", f"{p_2026 - b_target:,.0f}")
-c3.metric("Current Rebate %", f"{current_rebate_pct}%")
-c4.metric("Est. Rebate Value", f"{est_rebate_val:,.0f}")
-
-st.divider()
+est_rebate = p_2026 * (earned_pct / 100)
 
 # ==============================
-# VISUALS: PIE/GAUGE & BARS
+# DASHBOARD UI START
 # ==============================
-col_left, col_right = st.columns([1, 1.2])
+st.title(f"🏆 {selected_supplier} Performance")
+st.markdown("---")
+
+# KPI BOXES
+kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+kpi1.metric("2026 Purchase", f"{p_2026:,.0f}")
+kpi2.metric("Target Gap", f"{max(0, b_target - p_2026):,.0f}", delta_color="inverse")
+kpi3.metric("Current Rebate %", f"{earned_pct}%")
+kpi4.metric("Est. Rebate Value", f"{est_rebate:,.0f}")
+
+st.markdown("### 📈 Achievement Roadmap")
+
+col_left, col_right = st.columns([1, 1])
 
 with col_left:
-    st.subheader("📍 Target Achievement Status")
-    # Gauge chart for Base Target
+    # 1. GAUGE CHART (WHERE ARE WE VS TARGET)
     fig_gauge = go.Figure(go.Indicator(
-        mode = "gauge+number+delta",
+        mode = "gauge+number",
         value = p_2026,
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': "Purchase vs Base Target", 'font': {'size': 18}},
-        delta = {'reference': b_target, 'increasing': {'color': "green"}},
+        title = {'text': "Progress vs Base Target"},
         gauge = {
             'axis': {'range': [0, max(b_target, p_2026) * 1.2]},
             'bar': {'color': "#1f77b4"},
-            'steps': [
-                {'range': [0, b_target], 'color': "#ffcccc"},
-                {'range': [b_target, max(b_target, p_2026) * 1.2], 'color': "#ccffcc"}
-            ],
-            'threshold': {
-                'line': {'color': "red", 'width': 4},
-                'thickness': 0.75,
-                'value': b_target
-            }
+            'steps': [{'range': [0, b_target], 'color': "#ffe4e4"}],
+            'threshold': {'line': {'color': "red", 'width': 4}, 'value': b_target}
         }
     ))
-    fig_gauge.update_layout(height=350, margin=dict(l=20, r=20, t=50, b=20))
     st.plotly_chart(fig_gauge, use_container_width=True)
 
 with col_right:
-    st.subheader("📊 Comparative Performance (History vs Target)")
-    # Comprehensive bar chart
-    bar_data = {
-        'Category': ['2025 Sales', '2025 Purchase', 'Base Target', '2026 Purchase'],
-        'Amount': [s_2025, p_2025, b_target, p_2026],
-        'Color': ['#636EFA', '#EF553B', '#00CC96', '#AB63FA']
-    }
-    fig_bar = px.bar(bar_data, x='Category', y='Amount', color='Category', 
-                     text_auto='.3s', color_discrete_map="identity")
-    fig_bar.update_layout(showlegend=False, height=400)
+    # 2. COMPARISON BAR (2025 vs 2026 vs Target)
+    comp_df = pd.DataFrame({
+        'Metric': ['2025 Sales', '2025 Purchase', 'Base Target', '2026 Purchase'],
+        'Value': [s_2025, p_2025, b_target, p_2026]
+    })
+    fig_bar = px.bar(comp_df, x='Metric', y='Value', color='Metric', 
+                     text_auto='.3s', title="Historical vs Target Comparison")
+    fig_bar.update_layout(showlegend=False)
     st.plotly_chart(fig_bar, use_container_width=True)
 
 # ==============================
-# SLAB PROGRESSION (THE "BUY" GRAPH)
+# SLAB PROGRESS (REMAINING TO BUY)
 # ==============================
-st.subheader("🪜 Slab Progression: How much more to buy?")
+st.markdown("### 🪜 How much more to buy for Slabs?")
 if active_slabs:
     slab_df = pd.DataFrame(active_slabs)
     
-    # Custom Bar for Slab Targets vs Current
-    fig_slabs = go.Figure()
-    fig_slabs.add_trace(go.Bar(name='Current Purchase', x=slab_df['Slab'], y=[p_2026]*len(slab_df), marker_color='#1f77b4'))
-    fig_slabs.add_trace(go.Bar(name='Gap to Achieve', x=slab_df['Slab'], y=slab_df['Gap'], marker_color='#ff7f0e'))
+    # Create a "Bridge" chart or stacked chart showing current vs gap
+    fig_slab_prog = go.Figure()
+    fig_slab_prog.add_trace(go.Bar(name='Already Purchased', x=slab_df['Slab'], y=[p_2026]*len(slab_df), marker_color='#2ecc71'))
+    fig_slab_prog.add_trace(go.Bar(name='Remaining Gap', x=slab_df['Slab'], y=slab_df['Gap'], marker_color='#e74c3c'))
     
-    fig_slabs.update_layout(barmode='stack', title="Current Purchase + Amount Needed per Slab", height=400)
-    st.plotly_chart(fig_slabs, use_container_width=True)
-    
-    # Detailed Info Cards for Slabs
-    slab_cols = st.columns(len(active_slabs))
-    for i, s in enumerate(active_slabs):
-        with slab_cols[i]:
-            color = "green" if s['Status'] else "red"
-            st.markdown(f"""
-            <div style="border: 1px solid #ddd; padding:10px; border-radius:5px; text-align:center;">
-                <h4 style="margin:0;">{s['Slab']}</h4>
-                <p style="color:{color}; font-weight:bold; margin:0;">{s['Pct']}% Rebate</p>
-                <small>Need: {s['Gap']:,.0f}</small>
-            </div>
-            """, unsafe_allow_html=True)
+    fig_slab_prog.update_layout(barmode='stack', title="Current Purchase + Needed for each Slab Level")
+    st.plotly_chart(fig_slab_prog, use_container_width=True)
 else:
-    st.info("No progressive slabs defined for this supplier.")
+    st.info("No active slabs found for this supplier.")
 
+# ==============================
+# BRAND & CATEGORY SUMMARY
+# ==============================
 st.divider()
+st.markdown("### 📦 Brand & Category Breakdown")
+c_brand, c_cat = st.columns(2)
 
-# ==============================
-# SUMMARY: BRAND & CATEGORY
-# ==============================
-st.subheader("📋 Product Summary (Brand & Category)")
-summary_col1, summary_col2 = st.columns(2)
-
-with summary_col1:
-    st.write("**Purchase by Brand**")
-    brand_summ = s_data.groupby("BRAND")["2026 TOTEL PURCHASE"].sum().reset_index()
-    fig_brand = px.pie(brand_summ, names='BRAND', values='2026 TOTEL PURCHASE', hole=0.5)
+with c_brand:
+    brand_data = s_df.groupby("BRAND")["2026 TOTEL PURCHASE"].sum().reset_index()
+    fig_brand = px.pie(brand_data, names='BRAND', values='2026 TOTEL PURCHASE', 
+                       hole=0.4, title="Purchase by Brand")
     st.plotly_chart(fig_brand, use_container_width=True)
 
-with summary_col2:
-    st.write("**Purchase by Category**")
-    cat_summ = s_data.groupby("CATEGORY")["2026 TOTEL PURCHASE"].sum().reset_index()
-    fig_cat = px.bar(cat_summ, x='CATEGORY', y='2026 TOTEL PURCHASE', color='CATEGORY')
+with c_cat:
+    cat_data = s_df.groupby("CATEGORY")["2026 TOTEL PURCHASE"].sum().reset_index()
+    fig_cat = px.bar(cat_data, x='CATEGORY', y='2026 TOTEL PURCHASE', 
+                     color='CATEGORY', title="Purchase by Category")
     st.plotly_chart(fig_cat, use_container_width=True)
 
-# Detailed Data View
-with st.expander("🔍 View Raw Supplier Breakdown"):
-    st.table(s_data[['BRAND', 'CATEGORY', '2026 TOTEL PURCHASE', 'BASE TARGET']])
+# ==============================
+# KEY INSIGHTS
+# ==============================
+st.sidebar.markdown("---")
+st.sidebar.subheader("💡 Key Insights")
+st.sidebar.write(f"**Achieved:** {earned_pct}% Rebate Tier")
+if b_target > p_2026:
+    st.sidebar.error(f"Need **{b_target - p_2026:,.0f}** to reach Base Target.")
+else:
+    st.sidebar.success("✅ Base Target Achieved!")
 
-st.success(f"Strategy view for {selected_supplier} generated successfully.")
+st.success("Analysis Complete")
