@@ -1,303 +1,203 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
 
 # ==============================
 # PAGE CONFIG
 # ==============================
 st.set_page_config(
-    page_title="Supplier Rebate Dashboard",
+    page_title="Executive Supplier Rebate Tracker",
+    page_icon="💰",
     layout="wide"
 )
 
-# ==============================
-# HIDE STREAMLIT UI
-# ==============================
+# Custom CSS for a modern look
 st.markdown("""
-<style>
-header {visibility: hidden;}
-footer {visibility: hidden;}
-</style>
-""", unsafe_allow_html=True)
+    <style>
+    .main { background-color: #f8f9fa; }
+    div[data-testid="stMetricValue"] { font-size: 24px; color: #007bff; }
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    </style>
+    """, unsafe_allow_html=True)
 
 # ==============================
-# FILE PATH (CHANGE THIS)
+# FILE PATH & LOADING
 # ==============================
 FILE_PATH = r"BDA STREAMLIT.xlsx"
 
-
-# ==============================
-# LOAD DATA
-# ==============================
 @st.cache_data
 def load_data():
-    df = pd.read_excel(FILE_PATH)
-    df.columns = df.columns.str.strip()
-    return df
-
+    try:
+        df = pd.read_excel(FILE_PATH)
+        df.columns = df.columns.str.strip()
+        # Clean numeric columns
+        cols_to_fix = ['2026 TOTEL PURCHASE', 'BASE TARGET', '2025 TOTEL PURCHASE', 
+                       'SLAB A', 'SLAB B', 'SLAB C', 'SLAB D', 'SLAB E']
+        for col in cols_to_fix:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        return df
+    except Exception as e:
+        st.error(f"Error loading file: {e}")
+        return pd.DataFrame()
 
 df = load_data()
 
-
 # ==============================
-# CALCULATIONS
+# LOGIC: REBATE & SLAB PROCESSING
 # ==============================
-
-def calculate_rebate(row, purchase):
-
-    rebate = 0
-
+def process_slabs(row):
+    purchase = row['2026 TOTEL PURCHASE']
     slabs = [
-        ("SLAB A", "SLAB A ACHIEVE PAYABLE AMOUNT%"),
-        ("SLAB B", "SLAB B ACHIEVE PAYABLE AMOUNT%"),
-        ("SLAB C", "SLAB C ACHIEVE PAYABLE AMOUNT%"),
-        ("SLAB D", "SLAB D ACHIEVE PAYABLE AMOUNT%"),
-        ("SLAB E", "SLAB E ACHIEVE PAYABLE AMOUNT%"),
+        ('SLAB A', 'SLAB A ACHIEVE PAYABLE AMOUNT%'),
+        ('SLAB B', 'SLAB B ACHIEVE PAYABLE AMOUNT%'),
+        ('SLAB C', 'SLAB C ACHIEVE PAYABLE AMOUNT%'),
+        ('SLAB D', 'SLAB D ACHIEVE PAYABLE AMOUNT%'),
+        ('SLAB E', 'SLAB E ACHIEVE PAYABLE AMOUNT%'),
     ]
+    
+    active_slabs = []
+    earned_rebate = 0
+    current_pct = 0
+    
+    for slab_col, pct_col in slabs:
+        target_val = row[slab_col]
+        if target_val > 0: # Ignore zero slabs
+            is_achieved = purchase >= target_val
+            needed = max(0, target_val - purchase)
+            rebate_val = purchase * (row[pct_col] / 100) if is_achieved else 0
+            
+            if is_achieved:
+                earned_rebate = rebate_val # Progressive: highest achieved slab wins
+                current_pct = row[pct_col]
 
-    for slab, pct in slabs:
-
-        if row[slab] > 0 and purchase >= row[slab]:
-            rebate = purchase * (row[pct] / 100)
-
-    return rebate
-
-
-# ==============================
-# SIDEBAR
-# ==============================
-
-st.sidebar.header("🔍 Filter")
-
-supplier_list = ["All"] + sorted(df["supplier"].unique().tolist())
-
-selected_supplier = st.sidebar.selectbox(
-    "Select Supplier",
-    supplier_list
-)
-
-
-# ==============================
-# FILTER DATA
-# ==============================
-
-if selected_supplier == "All":
-    data = df.copy()
-else:
-    data = df[df["supplier"] == selected_supplier]
-
-
-# ==============================
-# OVERALL INSIGHTS
-# ==============================
-
-total_target = data["BASE TARGET"].sum()
-total_2025 = data["2025 TOTEL PURCHASE"].sum()
-total_2026 = data["2026 TOTEL PURCHASE"].sum()
-
-total_gap = total_target - total_2026
-
-
-# Calculate total rebate
-total_rebate = 0
-
-for i, row in data.iterrows():
-    total_rebate += calculate_rebate(row, row["2026 TOTEL PURCHASE"])
-
-
-# ==============================
-# HEADER
-# ==============================
-
-st.title("📊 Supplier Progressive Rebate Dashboard")
-st.markdown("---")
-
-
-# ==============================
-# KPI CARDS
-# ==============================
-
-col1, col2, col3, col4 = st.columns(4)
-
-col1.metric("🎯 Total Target", f"{total_target:,.0f}")
-col2.metric("🛒 2026 Purchase", f"{total_2026:,.0f}")
-col3.metric("📈 Gap to Target", f"{total_gap:,.0f}")
-col4.metric("💰 Est. Rebate", f"{total_rebate:,.0f}")
-
-
-st.markdown("---")
-
-
-# ==============================
-# SUPPLIER DETAILS
-# ==============================
-
-if selected_supplier != "All":
-
-    row = data.iloc[0]
-
-    st.subheader(f"📌 Supplier: {selected_supplier}")
-
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric("2025 Purchase", f"{row['2025 TOTEL PURCHASE']:,.0f}")
-    col2.metric("2026 Purchase", f"{row['2026 TOTEL PURCHASE']:,.0f}")
-    col3.metric("Base Target", f"{row['BASE TARGET']:,.0f}")
-
-
-    gap = row["BASE TARGET"] - row["2026 TOTEL PURCHASE"]
-
-    st.info(f"📉 Remaining to reach Base Target: {gap:,.0f}")
-
-
-# ==============================
-# SLAB ANALYSIS
-# ==============================
-
-st.subheader("🏆 Slab Progress")
-
-slab_data = []
-
-for i, row in data.iterrows():
-
-    purchase = row["2026 TOTEL PURCHASE"]
-
-    slabs = [
-        ("SLAB A", "SLAB A ACHIEVE PAYABLE AMOUNT%"),
-        ("SLAB B", "SLAB B ACHIEVE PAYABLE AMOUNT%"),
-        ("SLAB C", "SLAB C ACHIEVE PAYABLE AMOUNT%"),
-        ("SLAB D", "SLAB D ACHIEVE PAYABLE AMOUNT%"),
-        ("SLAB E", "SLAB E ACHIEVE PAYABLE AMOUNT%"),
-    ]
-
-    for slab, pct in slabs:
-
-        if row[slab] > 0:
-
-            required = row[slab]
-            remaining = max(0, required - purchase)
-
-            status = "Achieved" if purchase >= required else "Pending"
-
-            rebate_value = 0
-
-            if purchase >= required:
-                rebate_value = purchase * (row[pct] / 100)
-
-            slab_data.append({
-                "Supplier": row["supplier"],
-                "Slab": slab,
-                "Target": required,
-                "Current Purchase": purchase,
-                "Remaining": remaining,
-                "Rebate %": row[pct],
-                "Rebate Value": rebate_value,
-                "Status": status
+            active_slabs.append({
+                "Slab": slab_col,
+                "Target": target_val,
+                "Needed": needed,
+                "Status": "Achieved" if is_achieved else "Pending",
+                "Rebate%": row[pct_col],
+                "Potential Value": rebate_val
             })
-
-
-slab_df = pd.DataFrame(slab_data)
-
+            
+    return active_slabs, earned_rebate, current_pct
 
 # ==============================
-# TABLE
+# SIDEBAR FILTERS
 # ==============================
+st.sidebar.title("🏢 Supplier Control")
+supplier_list = ["All Suppliers"] + sorted(df["supplier"].unique().tolist())
+selected_supplier = st.sidebar.selectbox("Choose Supplier", supplier_list)
 
-st.dataframe(
-    slab_df,
-    use_container_width=True,
-    height=400
-)
-
-
-# ==============================
-# SLAB BAR CHART (REMAINING)
-# ==============================
-
-st.subheader("📊 Remaining Purchase to Achieve Slabs")
-
-pending = slab_df[slab_df["Status"] == "Pending"]
-
-if not pending.empty:
-
-    fig, ax = plt.subplots()
-
-    ax.bar(
-        pending["Slab"] + " (" + pending["Supplier"] + ")",
-        pending["Remaining"]
-    )
-
-    ax.set_xlabel("Slabs")
-    ax.set_ylabel("Remaining Purchase")
-    ax.set_title("Remaining to Achieve Slabs")
-
-    plt.xticks(rotation=45)
-
-    st.pyplot(fig)
-
+# Filter Data
+if selected_supplier == "All Suppliers":
+    filtered_df = df
 else:
-    st.success("✅ All slabs achieved!")
-
-
-# ==============================
-# PURCHASE DISTRIBUTION PIE
-# ==============================
-
-st.subheader("🥧 Purchase Distribution (2026)")
-
-purchase_data = data.groupby("supplier")["2026 TOTEL PURCHASE"].sum()
-
-fig2, ax2 = plt.subplots()
-
-ax2.pie(
-    purchase_data,
-    labels=purchase_data.index,
-    autopct='%1.1f%%',
-    startangle=90
-)
-
-ax2.axis("equal")
-
-st.pyplot(fig2)
-
+    filtered_df = df[df["supplier"] == selected_supplier]
 
 # ==============================
-# YEAR COMPARISON
+# CALCULATIONS (TOTALS)
 # ==============================
+total_purchase_2026 = filtered_df["2026 TOTEL PURCHASE"].sum()
+total_purchase_2025 = filtered_df["2025 TOTEL PURCHASE"].sum()
+total_base_target = filtered_df["BASE TARGET"].sum()
+total_gap_to_base = max(0, total_base_target - total_purchase_2026)
 
-st.subheader("📈 2025 vs 2026 Comparison")
+# Calculate dynamic rebates for the group
+total_est_rebate = 0
+all_slab_records = []
 
-compare_df = data.groupby("supplier").agg({
-    "2025 TOTEL PURCHASE": "sum",
-    "2026 TOTEL PURCHASE": "sum"
-})
+for _, row in filtered_df.iterrows():
+    slabs_list, rebate, _ = process_slabs(row)
+    total_est_rebate += rebate
+    for s in slabs_list:
+        s['Supplier'] = row['supplier']
+        all_slab_records.append(s)
 
-fig3, ax3 = plt.subplots()
-
-compare_df.plot(kind="bar", ax=ax3)
-
-ax3.set_ylabel("Purchase Value")
-ax3.set_title("2025 vs 2026 Purchase")
-
-plt.xticks(rotation=45)
-
-st.pyplot(fig3)
-
+slab_summary_df = pd.DataFrame(all_slab_records)
 
 # ==============================
-# FINAL INSIGHTS
+# MAIN DASHBOARD UI
 # ==============================
+st.title("📊 Supplier Progressive Rebate Dashboard")
+st.markdown(f"**Viewing:** {selected_supplier}")
 
-st.markdown("---")
-st.subheader("📌 Key Insights")
+# --- TOP KPI ROW ---
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("2026 Total Purchase", f"{total_purchase_2026:,.0f}")
+m2.metric("Base Target Gap", f"{total_gap_to_base:,.0f}", delta_color="inverse")
+m3.metric("Estimated Rebate", f"{total_est_rebate:,.0f}")
+m4.metric("2025 Total Sales", f"{total_purchase_2025:,.0f}")
 
-achieved = slab_df[slab_df["Status"] == "Achieved"].shape[0]
-pending_count = slab_df[slab_df["Status"] == "Pending"].shape[0]
+st.divider()
 
-st.write(f"✅ Achieved Slabs: {achieved}")
-st.write(f"⏳ Pending Slabs: {pending_count}")
-st.write(f"💰 Total Expected Rebate: {total_rebate:,.0f}")
-st.write(f"📦 Total Purchase Needed to Reach Targets: {max(0, total_gap):,.0f}")
+# --- GRAPHS SECTION ---
+col_left, col_right = st.columns([1, 1])
 
+with col_left:
+    st.subheader("🎯 Target vs. Actual Comparison")
+    comp_data = pd.DataFrame({
+        'Category': ['2025 Purchase', '2026 Purchase', 'Base Target'],
+        'Amount': [total_purchase_2025, total_purchase_2026, total_base_target]
+    })
+    fig_comp = px.bar(comp_data, x='Category', y='Amount', color='Category',
+                     text_auto='.2s', color_discrete_sequence=px.colors.qualitative.Pastel)
+    st.plotly_chart(fig_comp, use_container_width=True)
 
-st.success("Dashboard Loaded Successfully ✅")
+with col_right:
+    st.subheader("🥧 2026 Purchase Distribution")
+    fig_pie = px.pie(filtered_df, values='2026 TOTEL PURCHASE', names='supplier', 
+                    hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
+    st.plotly_chart(fig_pie, use_container_width=True)
+
+# --- SLAB ANALYSIS (Interactive Bar Chart) ---
+st.subheader("🪜 Progressive Slab Progress (Amount Needed to Reach Next Level)")
+if not slab_summary_df.empty:
+    # Filter only pending slabs to show what needs to be bought
+    pending_slabs = slab_summary_df[slab_summary_df["Status"] == "Pending"]
+    
+    if not pending_slabs.empty:
+        fig_slabs = px.bar(
+            pending_slabs, 
+            x="Slab", 
+            y="Needed", 
+            color="Supplier",
+            title="Purchase Required per Slab Level",
+            barmode="group",
+            text="Needed"
+        )
+        fig_slabs.update_traces(texttemplate='%{text:.2s}', textposition='outside')
+        st.plotly_chart(fig_slabs, use_container_width=True)
+    else:
+        st.success("🔥 All Slabs have been achieved for the selected criteria!")
+
+# --- DETAILED DATA TABLE ---
+with st.expander("📝 View Detailed Slab Breakdown"):
+    st.dataframe(slab_summary_df, use_container_width=True)
+
+# --- KEY INSIGHTS SECTION ---
+st.divider()
+st.subheader("💡 Strategic Key Insights")
+c1, c2 = st.columns(2)
+
+with c1:
+    st.info(f"**Rebate Status:** You are currently on track to receive **{total_est_rebate:,.2f}** in total rebates.")
+    if total_gap_to_base > 0:
+        st.warning(f"**Base Target Alert:** You need to purchase **{total_gap_to_base:,.2f}** more to hit the Base Target.")
+    else:
+        st.success("**Target Met:** Base targets have been exceeded!")
+
+with c2:
+    achieved_count = len(slab_summary_df[slab_summary_df["Status"] == "Achieved"])
+    total_active_slabs = len(slab_summary_df)
+    st.write(f"✅ **Slabs Achieved:** {achieved_count} of {total_active_slabs}")
+    
+    if selected_supplier != "All Suppliers":
+        # Specific logic for single supplier
+        row = filtered_df.iloc[0]
+        growth = ((total_purchase_2026 - total_purchase_2025) / total_purchase_2025 * 100) if total_purchase_2025 > 0 else 0
+        st.write(f"📈 **Year-over-Year Growth:** {growth:.1f}%")
+
+st.success("Dashboard Updated Successfully ✅")
