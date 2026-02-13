@@ -77,6 +77,7 @@ df = load_and_clean_data()
 # ==============================
 # 3. SIDEBAR NAVIGATION
 # ==============================
+st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3222/3222800.png", width=100)
 st.sidebar.title("Supplier Filter")
 supplier_list = sorted(df["supplier"].unique().tolist())
 selected_supplier = st.sidebar.selectbox("Select Supplier Account", supplier_list)
@@ -128,22 +129,53 @@ est_rebate_val = p_2026 * (current_earned_pct / 100)
 st.title(f"🏢 {selected_supplier} Performance Analysis")
 st.markdown("---")
 
-# Row 1: Key Metrics with Dark Values
+# Row 1: Key Metrics
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("2026 Total Purchase", f"{p_2026:,.0f}")
-m2.metric("Base Target Gap", f"{max(0, b_target - p_2026):,.0f}")
+m2.metric("Base Target Gap", f"{max(0, b_target - p_2026):,.0f}", delta_color="inverse")
 m3.metric("Earned Rebate %", f"{current_earned_pct}%")
 m4.metric("Est. Rebate Value", f"{est_rebate_val:,.0f}")
 
 st.divider()
 
 # ==============================
-# 6. SEPARATE VERTICAL SLAB GRAPHS (LEFT TO RIGHT)
+# 6. PERFORMANCE & COMPARISON GRAPHS
 # ==============================
+col_perf, col_comp = st.columns([1, 1.2])
+
+with col_perf:
+    st.subheader("🎯 Base Target Status")
+    fig_gauge = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=p_2026,
+        gauge={
+            'axis': {'range': [0, max(b_target, p_2026) * 1.1]},
+            'bar': {'color': "#1f77b4"},
+            'threshold': {'line': {'color': "red", 'width': 5}, 'value': b_target}
+        }
+    ))
+    fig_gauge.update_layout(height=350)
+    st.plotly_chart(fig_gauge, use_container_width=True)
+
+with col_comp:
+    st.subheader("📊 Purchase vs Sales (History)")
+    comp_data = pd.DataFrame({
+        'Category': ['2025 Sales', '2025 Purchase', 'Base Target', '2026 Purchase'],
+        'Amount': [s_2025, p_2025, b_target, p_2026]
+    })
+    fig_comp = px.bar(comp_data, x='Category', y='Amount', color='Category', 
+                     text_auto='.3s', color_discrete_sequence=px.colors.qualitative.Bold)
+    fig_comp.update_layout(showlegend=False, height=350)
+    st.plotly_chart(fig_comp, use_container_width=True)
+
+# ==============================
+# 7. VERTICAL SLAB PROGRESS (LEFT TO RIGHT)
+# ==============================
+st.divider()
 st.subheader("🪜 Individual Slab Progress (Vertical View)")
 
 if active_slabs:
-    # Dynamically create columns based on the number of slabs
+    # Dynamically create vertical columns for each slab
     slab_cols = st.columns(len(active_slabs))
     
     for i, s in enumerate(active_slabs):
@@ -151,7 +183,7 @@ if active_slabs:
             # Each Slab gets its own separate vertical graph
             fig_s = go.Figure()
             
-            # Grey background bar (The Target Ceiling)
+            # Grey background bar representing the full target
             fig_s.add_trace(go.Bar(
                 x=[s['Name']], y=[s['Target']],
                 marker_color='#e5e7eb', hoverinfo='skip', showlegend=False
@@ -170,12 +202,11 @@ if active_slabs:
                 barmode='overlay', height=450,
                 title=f"<b>{s['Name']}</b><br>{s['Percent']}% Rebate",
                 title_x=0.5,
-                yaxis=dict(range=[0, s['Target'] * 1.1], gridcolor='#f3f4f6'),
-                xaxis=dict(showgrid=False)
+                yaxis=dict(range=[0, s['Target'] * 1.1], gridcolor='#f3f4f6')
             )
             st.plotly_chart(fig_s, use_container_width=True)
             
-            # Actionable Gap info under each graph
+            # Detail labels below each vertical graph
             if s['Gap'] > 0:
                 st.error(f"📌 Need: **{s['Gap']:,.0f}**")
             else:
@@ -184,21 +215,26 @@ else:
     st.info("No progressive slabs found for this supplier.")
 
 # ==============================
-# 7. PRODUCT SUMMARY & COMPARISON
+# 8. PRODUCT BREAKDOWN (BRAND & CATEGORY)
 # ==============================
 st.divider()
-st.subheader("📋 Brand & Category Analysis")
+st.subheader("📋 Detailed Product Summary")
 b_left, b_right = st.columns(2)
 
 with b_left:
     brand_df = s_df.groupby("BRAND")["2026 TOTEL PURCHASE"].sum().reset_index()
-    fig_p = px.pie(brand_df, names='BRAND', values='2026 TOTEL PURCHASE', hole=0.5, title="Brand Share")
+    fig_p = px.pie(brand_df, names='BRAND', values='2026 TOTEL PURCHASE', 
+                   hole=0.5, title="Purchase Share by Brand")
     st.plotly_chart(fig_p, use_container_width=True)
 
 with b_right:
     cat_df = s_df.groupby("CATEGORY")["2026 TOTEL PURCHASE"].sum().reset_index()
-    fig_c = px.bar(cat_df, x='CATEGORY', y='2026 TOTEL PURCHASE', title="Category Volume", color='CATEGORY')
+    fig_c = px.bar(cat_df, x='CATEGORY', y='2026 TOTEL PURCHASE', 
+                   title="Volume by Category", color='CATEGORY')
     st.plotly_chart(fig_c, use_container_width=True)
 
-with st.expander("📂 View Detailed Data"):
+# Footer Detail
+with st.expander("📂 View Raw Transaction Data"):
     st.dataframe(s_df[['BRAND', 'CATEGORY', '2026 TOTEL PURCHASE', 'BASE TARGET']], use_container_width=True)
+
+st.sidebar.success("Dashboard Fully Loaded!")
