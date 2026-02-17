@@ -1,434 +1,142 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-
+import plotly.graph_objects as go
 
 # ===============================
 # PAGE CONFIG
 # ===============================
+st.set_page_config(page_title="Executive Sales Report", layout="wide", page_icon="📈")
 
-st.set_page_config(
-    page_title="Outlet Performance Dashboard",
-    layout="wide",
-    page_icon="📊"
-)
-
+# Professional Styling
+st.markdown("""
+    <style>
+    .main { background-color: #f8f9fa; }
+    div[data-testid="stMetricValue"] { font-size: 24px; font-weight: bold; color: #1f3b4d; }
+    .report-header { color: #1f3b4d; border-bottom: 2px solid #1f3b4d; padding-bottom: 10px; }
+    </style>
+    """, unsafe_allow_html=True)
 
 # ===============================
-# FILE PATH (CHANGE THIS)
+# DATA LOADING & CLEANING
 # ===============================
-
 FILE_PATH = r"TARGET STREAMLIt.xlsx"
-# 👆 CHANGE THIS TO YOUR FILE PATH
 
-
-# ===============================
-# TITLE
-# ===============================
-
-st.title("📈 Outlet Sales Performance Dashboard")
-st.markdown("Review | Targets vs Achievement")
-
-
-# ===============================
-# LOAD FILE
-# ===============================
-
-try:
-    df = pd.read_excel(FILE_PATH)
-except:
-    st.error("❌ File not found. Check FILE_PATH.")
-    st.stop()
-
-
-# ===============================
-# CLEAN COLUMN NAMES
-# ===============================
-
-df.columns = df.columns.str.strip()
-
-
-# ===============================
-# CHECK REQUIRED COLUMNS
-# ===============================
-
-required_cols = ["OUTLET", "MAIN", "Total Sales", "Total Profit"]
-
-missing = [c for c in required_cols if c not in df.columns]
-
-if missing:
-    st.error(f"❌ Missing columns: {missing}")
-    st.write("Found columns:", df.columns.tolist())
-    st.stop()
-
-
-# ===============================
-# CLEAN NUMBERS
-# ===============================
-
-for col in ["Total Sales", "Total Profit"]:
-
-    df[col] = (
-        df[col]
-        .astype(str)
-        .str.replace(",", "", regex=False)
-        .replace(["nan", "None", ""], None)
-    )
-
-    df[col] = pd.to_numeric(df[col], errors="coerce")
-
-
-df = df.dropna(subset=["Total Sales"], how="all")
-
-
-# ===============================
-# EXTRACT MONTH
-# ===============================
-
-df["Month"] = df["MAIN"].astype(str).str.split().str[0]
-
-
-# ===============================
-# EXTRACT TYPE
-# ===============================
-
-def detect_type(text):
-
-    text = str(text).upper()
-
-    if "TARGET" in text and "DAILY" not in text:
-        return "TARGET"
-
-    if "ACHIEVED" in text and "DAILY" not in text:
-        return "ACHIEVED"
-
-    return "IGNORE"
-
-
-df["Type"] = df["MAIN"].apply(detect_type)
-
-
-# ===============================
-# REMOVE DAILY ROWS
-# ===============================
-
-df = df[df["Type"].isin(["TARGET", "ACHIEVED"])]
-
-
-# ===============================
-# SPLIT TARGET / ACHIEVED
-# ===============================
-
-targets = df[df["Type"] == "TARGET"].copy()
-achieved = df[df["Type"] == "ACHIEVED"].copy()
-
-
-# ===============================
-# RENAME COLUMNS
-# ===============================
-
-targets = targets.rename(columns={
-    "Total Sales": "Target Sales",
-    "Total Profit": "Target Profit"
-})
-
-achieved = achieved.rename(columns={
-    "Total Sales": "Achieved Sales",
-    "Total Profit": "Achieved Profit"
-})
-
-
-# ===============================
-# MERGE DATA
-# ===============================
-
-summary = pd.merge(
-    targets,
-    achieved,
-    on=["OUTLET", "Month"],
-    how="left"
-)
-
-
-# ===============================
-# BASE CALCULATIONS
-# ===============================
-
-summary["Achieved Sales"] = summary["Achieved Sales"].fillna(0)
-
-summary["Sales Gap"] = summary["Target Sales"] - summary["Achieved Sales"]
-
-summary["Achievement %"] = (
-    summary["Achieved Sales"] / summary["Target Sales"] * 100
-).round(1)
-
-summary["Achievement %"] = summary["Achievement %"].fillna(0)
-
-
-# ===============================
-# AUTO-FILL FEB & MAR USING JAN
-# ===============================
-
-jan_perf = summary[summary["Month"] == "JAN"][[
-    "OUTLET", "Achievement %"
-]].copy()
-
-jan_perf = jan_perf.rename(columns={
-    "Achievement %": "Jan %"
-})
-
-
-summary = pd.merge(
-    summary,
-    jan_perf,
-    on="OUTLET",
-    how="left"
-)
-
-
-for i, row in summary.iterrows():
-
-    if row["Month"] in ["FEB", "MAR"]:
-
-        if pd.isna(row["Achieved Sales"]) or row["Achieved Sales"] == 0:
-
-            jan_pct = row["Jan %"] / 100
-
-            if not pd.isna(jan_pct) and jan_pct > 0:
-
-                expected = row["Target Sales"] * jan_pct
-
-                summary.at[i, "Achieved Sales"] = expected
-
-
-# Recalculate
-summary["Sales Gap"] = summary["Target Sales"] - summary["Achieved Sales"]
-
-summary["Achievement %"] = (
-    summary["Achieved Sales"] / summary["Target Sales"] * 100
-).round(1)
-
-summary["Achievement %"] = summary["Achievement %"].fillna(0)
-
-
-summary = summary.drop(columns=["Jan %"])
-
-
-# ===============================
-# STATUS
-# ===============================
-
-def get_status(val):
-
-    if val >= 95:
-        return "Excellent"
-
-    elif val >= 85:
-        return "Good"
-
-    else:
-        return "Needs Improvement"
-
-
-summary["Status"] = summary["Achievement %"].apply(get_status)
-
-
-# ===============================
-# SIDEBAR FILTERS
-# ===============================
-
-st.sidebar.header("🎯 Filters")
-
-
-selected_outlet = st.sidebar.selectbox(
-    "Select Outlet",
-    ["All Outlets"] + list(summary["OUTLET"].unique())
-)
-
-
-selected_months = st.sidebar.multiselect(
-    "Select Month",
-    options=summary["Month"].unique(),
-    default=summary["Month"].unique()
-)
-
-
-# ===============================
-# APPLY FILTERS
-# ===============================
-
-filtered = summary.copy()
-
-
-if selected_outlet != "All Outlets":
-    filtered = filtered[filtered["OUTLET"] == selected_outlet]
-
-
-filtered = filtered[filtered["Month"].isin(selected_months)]
-
-
-# ===============================
-# KPI SECTION
-# ===============================
-
-st.markdown("## 📌 Overall Performance")
-
-
-c1, c2, c3, c4 = st.columns(4)
-
-
-c1.metric("🎯 Target", f"{filtered['Target Sales'].sum():,.0f}")
-c2.metric("✅ Achieved", f"{filtered['Achieved Sales'].sum():,.0f}")
-c3.metric("📉 Gap", f"{filtered['Sales Gap'].sum():,.0f}")
-c4.metric("📊 Avg %", f"{filtered['Achievement %'].mean():.1f}%")
-
-
-# ===============================
-# MAIN TABLE
-# ===============================
-
-st.markdown("## 📋 Outlet Performance Summary")
-
-
-display = filtered[[
-    "OUTLET",
-    "Month",
-    "Target Sales",
-    "Achieved Sales",
-    "Sales Gap",
-    "Achievement %",
-    "Status"
-]]
-
-
-def highlight(row):
-
-    if row["Status"] == "Excellent":
-        return ["background-color:#d4edda"] * len(row)
-
-    if row["Status"] == "Good":
-        return ["background-color:#fff3cd"] * len(row)
-
-    return ["background-color:#f8d7da"] * len(row)
-
-
-st.dataframe(
-    display
-    .style
-    .apply(highlight, axis=1)
-    .format({
-        "Target Sales": "{:,.0f}",
-        "Achieved Sales": "{:,.0f}",
-        "Sales Gap": "{:,.0f}",
-        "Achievement %": "{:.1f}%"
-    }),
-    use_container_width=True
-)
-
-
-# ===============================
-# BAR CHART
-# ===============================
-
-st.markdown("## 📊 Target vs Achievement")
-
-
-chart_df = filtered.melt(
-    id_vars=["OUTLET", "Month"],
-    value_vars=["Target Sales", "Achieved Sales"],
-    var_name="Type",
-    value_name="Sales"
-)
-
-
-fig = px.bar(
-    chart_df,
-    x="Month",
-    y="Sales",
-    color="Type",
-    barmode="group",
-    height=500
-)
-
-
-st.plotly_chart(fig, use_container_width=True)
-
-
-# ===============================
-# FEB & MAR MOTIVATION
-# ===============================
-
-st.markdown("## 🚀 Feb & Mar Growth Opportunity")
-
-
-fm = filtered[filtered["Month"].isin(["FEB", "MAR"])]
-
-
-for outlet in fm["OUTLET"].unique():
-
-    temp = fm[fm["OUTLET"] == outlet]
-
-    if temp.empty:
-        continue
-
-
-    avg = temp["Achievement %"].mean()
-    gap = temp["Sales Gap"].sum()
-
-
-    st.markdown(f"### 🏪 {outlet}")
-
-
-    if avg >= 85:
-
-        st.success(
-            f"✅ Strong Performance ({avg:.1f}%) — Targets are achievable."
+@st.cache_data
+def load_and_clean(path):
+    try:
+        df = pd.read_excel(path)
+        df.columns = df.columns.str.strip()
+        
+        # Clean numeric columns (Remove commas, convert to float)
+        for col in ["Total Sales", "Total Profit", "Margin (%)"]:
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", ""), errors="coerce")
+        
+        # Extract Month and Category
+        df["Month"] = df["MAIN"].astype(str).str.split().str[0].str.upper()
+        
+        def categorize(text):
+            text = str(text).upper()
+            if "DAILY" in text: return "IGNORE"
+            if "TARGET" in text: return "TARGET"
+            if "ACHIEVED" in text: return "ACHIEVED"
+            return "IGNORE"
+        
+        df["Category"] = df["MAIN"].apply(categorize)
+        return df[df["Category"] != "IGNORE"]
+    except Exception as e:
+        st.error(f"Error reading file: {e}")
+        return None
+
+df_raw = load_and_clean(FILE_PATH)
+
+if df_raw is not None:
+    # Split into Target vs Achievement
+    t_df = df_raw[df_raw["Category"] == "TARGET"].rename(columns={"Total Sales": "Target", "Total Profit": "T_Profit", "Margin (%)": "T_Margin"})
+    a_df = df_raw[df_raw["Category"] == "ACHIEVED"].rename(columns={"Total Sales": "Actual", "Total Profit": "A_Profit", "Margin (%)": "A_Margin"})
+    
+    # Merge for Jan (since Feb/Mar actuals are 0)
+    report_df = pd.merge(t_df, a_df[["OUTLET", "Month", "Actual", "A_Profit", "A_Margin"]], on=["OUTLET", "Month"], how="left").fillna(0)
+
+    # ===============================
+    # TOP HEADER
+    # ===============================
+    st.markdown("<h1 class='report-header'>Outlet Sales Performance Report</h1>", unsafe_allow_html=True)
+    st.write(f"Reporting Period: January – March | File: {FILE_PATH.split('/')[-1]}")
+
+    # ===============================
+    # KPI SECTION (OVERALL)
+    # ===============================
+    jan_data = report_df[report_df["Month"] == "JAN"]
+    total_jan_target = jan_data["Target"].sum()
+    total_jan_actual = jan_data["Actual"].sum()
+    gap = total_jan_target - total_jan_actual
+    perf_pct = (total_jan_actual / total_jan_target * 100) if total_jan_target > 0 else 0
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Jan Total Target", f"{total_jan_target:,.0f}")
+    c2.metric("Jan Total Achieved", f"{total_jan_actual:,.0f}")
+    c3.metric("Jan Sales Gap", f"{gap:,.0f}", delta_color="inverse")
+    c4.metric("Achievement Rate", f"{perf_pct:.1f}%")
+
+    st.markdown("---")
+
+    # ===============================
+    # CHART: TARGET VS ACTUAL (BY OUTLET)
+    # ===============================
+    st.subheader("📊 January Performance: Target vs. Actual by Outlet")
+    
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=jan_data["OUTLET"], y=jan_data["Target"], name="Target", marker_color='#D1D5DB'))
+    fig.add_trace(go.Bar(x=jan_data["OUTLET"], y=jan_data["Actual"], name="Actual", marker_color='#0056b3'))
+
+    fig.update_layout(barmode='group', height=450, margin=dict(t=20), xaxis_tickangle=-45)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # ===============================
+    # SECTION: FEB & MAR TARGETS
+    # ===============================
+    st.markdown("### 📅 Upcoming Targets (Q1 Planning)")
+    st.info("The following values represent the set targets for the upcoming months.")
+    
+    feb_mar = report_df[report_df["Month"].isin(["FEB", "MAR"])]
+    
+    # Pivot for clean comparison
+    upcoming_pivot = feb_mar.pivot(index="OUTLET", columns="Month", values="Target").reset_index()
+    
+    col_left, col_right = st.columns([2, 1])
+    
+    with col_left:
+        st.write("**Target Breakdown by Month**")
+        st.dataframe(
+            upcoming_pivot.style.format({"FEB": "{:,.0f}", "MAR": "{:,.0f}"}),
+            use_container_width=True
         )
 
-    else:
+    with col_right:
+        # Mini bar chart for Feb vs Mar totals
+        fm_totals = feb_mar.groupby("Month")["Target"].sum().reindex(["FEB", "MAR"])
+        fig_fm = go.Figure(data=[go.Bar(x=fm_totals.index, y=fm_totals.values, marker_color='#ffa500')])
+        fig_fm.update_layout(height=250, title="Total Budget (Feb vs Mar)", margin=dict(t=30, b=0, l=0, r=0))
+        st.plotly_chart(fig_fm, use_container_width=True)
 
-        st.warning(
-            f"⚠️ Achievement: {avg:.1f}% | Gap: {gap:,.0f}. Focus can close this."
-        )
-
-
-# ===============================
-# INSIGHTS
-# ===============================
-
-st.markdown("## 💡 Management Insights")
-
-
-best = filtered.sort_values("Achievement %", ascending=False).head(3)
-worst = filtered.sort_values("Achievement %").head(3)
-
-
-c1, c2 = st.columns(2)
-
-
-with c1:
-
-    st.markdown("### 🌟 Top Performers")
-
+    # ===============================
+    # FULL DATA SUMMARY
+    # ===============================
+    st.markdown("### 📋 Detailed Summary Table")
+    
+    # Add Achievement % for Jan
+    jan_data["Achievement %"] = (jan_data["Actual"] / jan_data["Target"] * 100).round(1)
+    
+    final_table = report_df[["OUTLET", "Month", "Target", "Actual", "T_Profit"]].copy()
+    
     st.dataframe(
-        best[["OUTLET", "Month", "Achievement %"]],
+        final_table.style.format({
+            "Target": "{:,.0f}",
+            "Actual": "{:,.0f}",
+            "T_Profit": "{:,.0f}"
+        }),
         use_container_width=True
     )
 
-
-with c2:
-
-    st.markdown("### ⚠️ Focus Areas")
-
-    st.dataframe(
-        worst[["OUTLET", "Month", "Achievement %"]],
-        use_container_width=True
-    )
-
-
-# ===============================
-# FOOTER
-# ===============================
-
-st.markdown("---")
-st.markdown("📊 Prepared for Management Review")
+    st.markdown("---")
+    st.caption("Internal Management Report - Generated for Outlet Performance Review")
