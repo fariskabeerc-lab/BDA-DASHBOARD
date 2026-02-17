@@ -3,16 +3,15 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # ===============================
-# PAGE CONFIG
+# PAGE CONFIG & STYLING
 # ===============================
-st.set_page_config(page_title="Executive Sales Report", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Executive Performance Dashboard", layout="wide", page_icon="📊")
 
-# Professional Styling
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
-    div[data-testid="stMetricValue"] { font-size: 24px; font-weight: bold; color: #1f3b4d; }
-    .report-header { color: #1f3b4d; border-bottom: 2px solid #1f3b4d; padding-bottom: 10px; }
+    [data-testid="stMetricValue"] { font-size: 26px; font-weight: bold; color: #1f3b4d; }
+    .header-style { font-size: 30px; font-weight: bold; color: #1f3b4d; border-bottom: 3px solid #0056b3; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -22,121 +21,127 @@ st.markdown("""
 FILE_PATH = r"TARGET STREAMLIt.xlsx"
 
 @st.cache_data
-def load_and_clean(path):
+def load_and_process(path):
     try:
         df = pd.read_excel(path)
         df.columns = df.columns.str.strip()
         
-        # Clean numeric columns (Remove commas, convert to float)
+        # Clean Numeric Columns
         for col in ["Total Sales", "Total Profit", "Margin (%)"]:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", ""), errors="coerce")
         
-        # Extract Month and Category
+        # Extract Month & Type
         df["Month"] = df["MAIN"].astype(str).str.split().str[0].str.upper()
+        df["Type"] = df["MAIN"].apply(lambda x: "TARGET" if "TARGET" in str(x).upper() and "DAILY" not in str(x).upper() 
+                                     else ("ACHIEVED" if "ACHIEVED" in str(x).upper() and "DAILY" not in str(x).upper() else "IGNORE"))
         
-        def categorize(text):
-            text = str(text).upper()
-            if "DAILY" in text: return "IGNORE"
-            if "TARGET" in text: return "TARGET"
-            if "ACHIEVED" in text: return "ACHIEVED"
-            return "IGNORE"
-        
-        df["Category"] = df["MAIN"].apply(categorize)
-        return df[df["Category"] != "IGNORE"]
+        df = df[df["Type"] != "IGNORE"]
+        return df
     except Exception as e:
-        st.error(f"Error reading file: {e}")
+        st.error(f"Error: {e}")
         return None
 
-df_raw = load_and_clean(FILE_PATH)
+df_raw = load_and_process(FILE_PATH)
 
 if df_raw is not None:
-    # Split into Target vs Achievement
-    t_df = df_raw[df_raw["Category"] == "TARGET"].rename(columns={"Total Sales": "Target", "Total Profit": "T_Profit", "Margin (%)": "T_Margin"})
-    a_df = df_raw[df_raw["Category"] == "ACHIEVED"].rename(columns={"Total Sales": "Actual", "Total Profit": "A_Profit", "Margin (%)": "A_Margin"})
+    # --- Sidebar Filters ---
+    st.sidebar.header("🎯 Navigation")
+    outlets = sorted(df_raw["OUTLET"].unique())
+    selected_outlet = st.sidebar.selectbox("Select Outlet", outlets)
+
+    # --- Data Processing for Selected Outlet ---
+    outlet_df = df_raw[df_raw["OUTLET"] == selected_outlet]
     
-    # Merge for Jan (since Feb/Mar actuals are 0)
-    report_df = pd.merge(t_df, a_df[["OUTLET", "Month", "Actual", "A_Profit", "A_Margin"]], on=["OUTLET", "Month"], how="left").fillna(0)
+    # Pivot Data
+    pivot = outlet_df.pivot(index="Month", columns="Type", values=["Total Sales", "Total Profit", "Margin (%)"])
+    pivot.columns = [f"{col}_{type}" for col, type in pivot.columns]
+    pivot = pivot.fillna(0).reset_index()
+
+    # Define Order
+    pivot['Month'] = pd.Categorical(pivot['Month'], categories=['JAN', 'FEB', 'MAR'], ordered=True)
+    pivot = pivot.sort_values('Month')
 
     # ===============================
-    # TOP HEADER
+    # HEADER SECTION
     # ===============================
-    st.markdown("<h1 class='report-header'>Outlet Sales Performance Report</h1>", unsafe_allow_html=True)
-    st.write(f"Reporting Period: January – March | File: {FILE_PATH.split('/')[-1]}")
-
-    # ===============================
-    # KPI SECTION (OVERALL)
-    # ===============================
-    jan_data = report_df[report_df["Month"] == "JAN"]
-    total_jan_target = jan_data["Target"].sum()
-    total_jan_actual = jan_data["Actual"].sum()
-    gap = total_jan_target - total_jan_actual
-    perf_pct = (total_jan_actual / total_jan_target * 100) if total_jan_target > 0 else 0
-
+    st.markdown(f"<p class='header-style'>📊 Performance Review: {selected_outlet}</p>", unsafe_allow_html=True)
+    
+    # JAN ONLY KPIs
+    jan = pivot[pivot["Month"] == "JAN"].iloc[0]
+    
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Jan Total Target", f"{total_jan_target:,.0f}")
-    c2.metric("Jan Total Achieved", f"{total_jan_actual:,.0f}")
-    c3.metric("Jan Sales Gap", f"{gap:,.0f}", delta_color="inverse")
-    c4.metric("Achievement Rate", f"{perf_pct:.1f}%")
+    c1.metric("Jan Target", f"{jan['Total Sales_TARGET']:,.0f}")
+    c2.metric("Jan Achieved", f"{jan['Total Sales_ACHIEVED']:,.0f}")
+    c3.metric("Jan GP %", f"{jan['Margin (%)_ACHIEVED']:.1f}%")
+    c4.metric("Jan Profit", f"{jan['Total Profit_ACHIEVED']:,.0f}")
 
     st.markdown("---")
 
     # ===============================
-    # CHART: TARGET VS ACTUAL (BY OUTLET)
+    # ROW 1: SALES & PROFIT GRAPHS (JANUARY)
     # ===============================
-    st.subheader("📊 January Performance: Target vs. Actual by Outlet")
-    
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=jan_data["OUTLET"], y=jan_data["Target"], name="Target", marker_color='#D1D5DB'))
-    fig.add_trace(go.Bar(x=jan_data["OUTLET"], y=jan_data["Actual"], name="Actual", marker_color='#0056b3'))
+    st.subheader("📈 January Performance Analysis")
+    col_left, col_right = st.columns(2)
 
-    fig.update_layout(barmode='group', height=450, margin=dict(t=20), xaxis_tickangle=-45)
-    st.plotly_chart(fig, use_container_width=True)
-
-    # ===============================
-    # SECTION: FEB & MAR TARGETS
-    # ===============================
-    st.markdown("### 📅 Upcoming Targets (Q1 Planning)")
-    st.info("The following values represent the set targets for the upcoming months.")
-    
-    feb_mar = report_df[report_df["Month"].isin(["FEB", "MAR"])]
-    
-    # Pivot for clean comparison
-    upcoming_pivot = feb_mar.pivot(index="OUTLET", columns="Month", values="Target").reset_index()
-    
-    col_left, col_right = st.columns([2, 1])
-    
     with col_left:
-        st.write("**Target Breakdown by Month**")
-        st.dataframe(
-            upcoming_pivot.style.format({"FEB": "{:,.0f}", "MAR": "{:,.0f}"}),
-            use_container_width=True
-        )
+        # Sales vs Target Chart
+        fig_sales = go.Figure()
+        fig_sales.add_trace(go.Bar(name="Target", x=["January"], y=[jan["Total Sales_TARGET"]], marker_color='#D1D5DB'))
+        fig_sales.add_trace(go.Bar(name="Actual", x=["January"], y=[jan["Total Sales_ACHIEVED"]], marker_color='#0056b3'))
+        fig_sales.update_layout(title="Sales vs Target", barmode='group', height=400, showlegend=True)
+        st.plotly_chart(fig_sales, use_container_width=True)
 
     with col_right:
-        # Mini bar chart for Feb vs Mar totals
-        fm_totals = feb_mar.groupby("Month")["Target"].sum().reindex(["FEB", "MAR"])
-        fig_fm = go.Figure(data=[go.Bar(x=fm_totals.index, y=fm_totals.values, marker_color='#ffa500')])
-        fig_fm.update_layout(height=250, title="Total Budget (Feb vs Mar)", margin=dict(t=30, b=0, l=0, r=0))
-        st.plotly_chart(fig_fm, use_container_width=True)
+        # Profit vs Target Chart
+        fig_profit = go.Figure()
+        fig_profit.add_trace(go.Bar(name="Target Profit", x=["January"], y=[jan["Total Profit_TARGET"]], marker_color='#E5E7E9'))
+        fig_profit.add_trace(go.Bar(name="Actual Profit", x=["January"], y=[jan["Total Profit_ACHIEVED"]], marker_color='#28a745'))
+        fig_profit.update_layout(title="Profit vs Target", barmode='group', height=400)
+        st.plotly_chart(fig_profit, use_container_width=True)
 
     # ===============================
-    # FULL DATA SUMMARY
+    # ROW 2: GP% COMPARISON
     # ===============================
-    st.markdown("### 📋 Detailed Summary Table")
+    st.subheader("💎 Margin (GP%) Comparison")
     
-    # Add Achievement % for Jan
-    jan_data["Achievement %"] = (jan_data["Actual"] / jan_data["Target"] * 100).round(1)
+    fig_gp = go.Figure()
+    fig_gp.add_trace(go.Scatter(x=["January"], y=[jan["Margin (%)_TARGET"]], name="Target GP%", mode='lines+markers', line=dict(color='red', dash='dash')))
+    fig_gp.add_trace(go.Bar(x=["January"], y=[jan["Margin (%)_ACHIEVED"]], name="Actual GP%", marker_color='#FF8C00', width=0.3))
+    fig_gp.update_layout(title="GP% Performance", height=350, yaxis_title="Percentage (%)")
+    st.plotly_chart(fig_gp, use_container_width=True)
+
+    # ===============================
+    # ROW 3: FUTURE TARGETS (FEB & MAR)
+    # ===============================
+    st.markdown("---")
+    st.subheader("📅 Q1 Forward Planning: Feb & Mar Targets")
     
-    final_table = report_df[["OUTLET", "Month", "Target", "Actual", "T_Profit"]].copy()
+    fm_data = pivot[pivot["Month"].isin(["FEB", "MAR"])]
     
+    col_f, col_m = st.columns(2)
+    
+    for i, month in enumerate(["FEB", "MAR"]):
+        m_row = fm_data[fm_data["Month"] == month].iloc[0]
+        with (col_f if i == 0 else col_m):
+            st.markdown(f"#### {month} Forecast")
+            st.write(f"**Target Sales:** {m_row['Total Sales_TARGET']:,.0f}")
+            st.write(f"**Expected Profit:** {m_row['Total Profit_TARGET']:,.0f}")
+            st.write(f"**Target Margin:** {m_row['Margin (%)_TARGET']:.1f}%")
+            
+            # Mini Visual for Target
+            st.progress(0.0) # Visual placeholder since actual is 0
+            st.caption(f"Waiting for {month} actual data...")
+
+    # ===============================
+    # DATA TABLE
+    # ===============================
+    st.markdown("### 📋 Full Data Breakdown")
     st.dataframe(
-        final_table.style.format({
-            "Target": "{:,.0f}",
-            "Actual": "{:,.0f}",
-            "T_Profit": "{:,.0f}"
+        pivot[["Month", "Total Sales_TARGET", "Total Sales_ACHIEVED", "Total Profit_TARGET", "Total Profit_ACHIEVED", "Margin (%)_TARGET", "Margin (%)_ACHIEVED"]]
+        .style.format({
+            "Total Sales_TARGET": "{:,.0f}", "Total Sales_ACHIEVED": "{:,.0f}",
+            "Total Profit_TARGET": "{:,.0f}", "Total Profit_ACHIEVED": "{:,.0f}",
+            "Margin (%)_TARGET": "{:.1f}%", "Margin (%)_ACHIEVED": "{:.1f}%"
         }),
         use_container_width=True
     )
-
-    st.markdown("---")
-    st.caption("Internal Management Report - Generated for Outlet Performance Review")
