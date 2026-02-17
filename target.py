@@ -14,11 +14,11 @@ st.set_page_config(
 
 
 # ===============================
-# FILE PATH (EDIT HERE)
+# FILE PATH (EDIT THIS)
 # ===============================
 
 FILE_PATH = r"TARGET STREAMLIt.xlsx"
-# 👆 Change this to your actual Excel file path
+# 👆 CHANGE this to your real Excel file path
 
 
 # ===============================
@@ -62,8 +62,8 @@ st.markdown("### Management Review | Targets vs Achievement")
 
 try:
     df = pd.read_excel(FILE_PATH)
-except:
-    st.error("❌ File not found. Please check the FILE_PATH.")
+except Exception as e:
+    st.error("❌ Cannot load file. Check FILE_PATH.")
     st.stop()
 
 
@@ -73,31 +73,64 @@ except:
 
 for col in ["Total Sales", "Margin (%)", "Total Profit"]:
     if col in df.columns:
+
         df[col] = (
             df[col]
             .astype(str)
-            .str.replace(",", "")
+            .str.replace(",", "", regex=False)
             .replace("nan", "")
+            .replace("None", "")
         )
+
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
 
+# Remove fully empty rows
 df = df.dropna(subset=["Total Sales"], how="all")
 
 
 # ===============================
-# SPLIT MONTH & TYPE
+# EXTRACT MONTH & TYPE (FIXED)
 # ===============================
 
-df[["Month", "Type"]] = df["MAIN"].str.split(" ", expand=True)
+# Month = first word (JAN, FEB...)
+df["Month"] = df["MAIN"].astype(str).str.split().str[0]
+
+
+# Detect row type
+def get_type(text):
+
+    text = str(text).upper()
+
+    if "TARGET" in text and "DAILY" not in text:
+        return "TARGET"
+
+    elif "ACHIEVED" in text and "DAILY" not in text:
+        return "ACHIEVED"
+
+    elif "DAILY" in text:
+        return "DAILY"
+
+    else:
+        return "OTHER"
+
+
+df["Type"] = df["MAIN"].apply(get_type)
 
 
 # ===============================
-# FILTER TARGET & ACHIEVED
+# REMOVE DAILY / OTHER ROWS
 # ===============================
 
-targets = df[df["Type"] == "TARGET"]
-achieved = df[df["Type"] == "ACHIEVED"]
+df = df[df["Type"].isin(["TARGET", "ACHIEVED"])]
+
+
+# ===============================
+# SPLIT TARGET & ACHIEVED
+# ===============================
+
+targets = df[df["Type"] == "TARGET"].copy()
+achieved = df[df["Type"] == "ACHIEVED"].copy()
 
 
 targets = targets.rename(columns={
@@ -127,18 +160,25 @@ summary = pd.merge(
 # CALCULATIONS
 # ===============================
 
+summary["Achieved Sales"] = summary["Achieved Sales"].fillna(0)
+
 summary["Sales Gap"] = summary["Target Sales"] - summary["Achieved Sales"]
 
 summary["Achievement %"] = (
     (summary["Achieved Sales"] / summary["Target Sales"]) * 100
 ).round(1)
 
+summary["Achievement %"] = summary["Achievement %"].fillna(0)
+
 
 def status(val):
+
     if val >= 95:
         return "Excellent"
+
     elif val >= 85:
         return "Good"
+
     else:
         return "Needs Improvement"
 
@@ -153,14 +193,14 @@ summary["Status"] = summary["Achievement %"].apply(status)
 st.sidebar.header("🎯 Filters")
 
 
-# ✅ Outlet Selector
+# Outlet selector
 selected_outlet = st.sidebar.selectbox(
     "Select Outlet",
     ["All Outlets"] + list(summary["OUTLET"].unique())
 )
 
 
-# ✅ Month Selector
+# Month selector
 selected_months = st.sidebar.multiselect(
     "Select Month",
     options=summary["Month"].unique(),
@@ -177,9 +217,7 @@ filtered = summary.copy()
 if selected_outlet != "All Outlets":
     filtered = filtered[filtered["OUTLET"] == selected_outlet]
 
-filtered = filtered[
-    filtered["Month"].isin(selected_months)
-]
+filtered = filtered[filtered["Month"].isin(selected_months)]
 
 
 # ===============================
@@ -188,7 +226,9 @@ filtered = filtered[
 
 st.markdown("## 📌 Overall Performance")
 
+
 col1, col2, col3, col4 = st.columns(4)
+
 
 total_target = filtered["Target Sales"].sum()
 total_achieved = filtered["Achieved Sales"].sum()
@@ -215,6 +255,7 @@ with col4:
 
 st.markdown("## 📋 Outlet Performance Summary")
 
+
 display_df = filtered[[
     "OUTLET",
     "Month",
@@ -227,10 +268,13 @@ display_df = filtered[[
 
 
 def highlight(row):
+
     if row["Status"] == "Excellent":
         return ["background-color:#d4edda"] * len(row)
+
     elif row["Status"] == "Good":
         return ["background-color:#fff3cd"] * len(row)
+
     else:
         return ["background-color:#f8d7da"] * len(row)
 
@@ -274,6 +318,7 @@ fig = px.bar(
     title="Monthly Performance Comparison"
 )
 
+
 st.plotly_chart(fig, use_container_width=True)
 
 
@@ -300,14 +345,17 @@ for outlet in fm["OUTLET"].unique():
     st.markdown(f"### 🏪 {outlet}")
 
     if avg >= 85:
+
         st.success(
             f"✅ Strong Performance ({avg:.1f}%) — "
-            "Feb & Mar targets are highly achievable."
+            "Feb & Mar targets are achievable."
         )
+
     else:
+
         st.warning(
             f"⚠️ Achievement: {avg:.1f}% | "
-            f"Gap: {gap:,.0f}. Strong push can close this."
+            f"Gap: {gap:,.0f}. Focus can close this."
         )
 
 
@@ -324,13 +372,25 @@ worst = filtered.sort_values("Achievement %").head(3)
 
 col1, col2 = st.columns(2)
 
+
 with col1:
+
     st.markdown("### 🌟 Top Performers")
-    st.dataframe(best[["OUTLET", "Month", "Achievement %"]])
+
+    st.dataframe(
+        best[["OUTLET", "Month", "Achievement %"]],
+        use_container_width=True
+    )
+
 
 with col2:
+
     st.markdown("### ⚠️ Focus Areas")
-    st.dataframe(worst[["OUTLET", "Month", "Achievement %"]])
+
+    st.dataframe(
+        worst[["OUTLET", "Month", "Achievement %"]],
+        use_container_width=True
+    )
 
 
 # ===============================
@@ -338,4 +398,5 @@ with col2:
 # ===============================
 
 st.markdown("---")
+
 st.markdown("📊 Prepared for Management Review | Performance Analytics System")
